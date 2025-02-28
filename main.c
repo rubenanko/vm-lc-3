@@ -50,30 +50,45 @@ typedef enum
 uint16_t MEMORY[MEMORY_MAX];
 int REGISTERS[REGISTER_COUNT];
 
-uint16_t read_memory_block(uint16_t offset)
+uint16_t read_memory_block(uint16_t address)
 {
-    if(-1 < offset && offset < MEMORY_MAX)
-        return MEMORY[offset];
+    if(-1 < address && address < MEMORY_MAX)
+        return MEMORY[address];
 }
 
-uint16_t write_memory_block(uint16_t offset,uint16_t data)
+uint16_t write_memory_block(uint16_t address,uint16_t data)
 {
-    if(-1 < offset && offset < MEMORY_MAX)
+    if(-1 < address && address < MEMORY_MAX)
     {
-        MEMORY[offset] = data;
+        MEMORY[address] = data;
         return 1;
     }
     else
         return 0;
 }
 
-uint16_t write_memory(uint16_t offset,uint16_t * data, uint16_t size)
+uint16_t write_memory(uint16_t address,uint16_t * data, uint16_t size)
 {
-    if(-1 < offset && offset < MEMORY_MAX+size)
+    if(-1 < address && address < MEMORY_MAX+size)
     {
         while(size > 0)
         {
-            MEMORY[offset++] = *(data++);
+            MEMORY[address++] = *(data++);
+            size--;
+        }
+        return 1;
+    }
+    else
+        return 0;
+}
+
+uint16_t read_memory(uint16_t address,uint16_t * buffer, uint16_t size)
+{
+    if(-1 < address && address < MEMORY_MAX+size)
+    {
+        while(size > 0)
+        {
+            *(buffer++) = MEMORY[address++];
             size--;
         }
         return 1;
@@ -96,6 +111,28 @@ uint16_t read_subint(uint16_t block,uint16_t offset,uint16_t size)
         return (block>>offset) & (0xFFFF>>(16-size));
 }
 
+void update_condition_flags(uint16_t reg)
+{
+    if(REGISTERS[reg] == 0)
+    {
+        REGISTERS[REGISTER_CONDITION] = CFLAG_ZERO;
+    } 
+    else 
+    {
+        if(REGISTERS[reg] >> 15)
+            REGISTERS[REGISTER_CONDITION] = CFLAG_NEGATIVE;
+        else
+            REGISTERS[REGISTER_CONDITION] = CFLAG_POSITIVE;
+    }
+}
+
+uint16_t cast_to_int16(uint16_t value,uint16_t size)
+{
+    if(value>>(size-1) & 1) // & 1 ?
+        return (0xFFFF<<size) | value;
+    else
+        return value;
+}
 
 int initialisation()
 {
@@ -110,7 +147,7 @@ int main()
     uint16_t instruction = 0;
     uint16_t opcode;
     
-    write_memory_block(PROGRAM_COUNTER_START,(OP_CODE_ADD<<12) + (REGISTER_R0<<9) + (REGISTER_R1<<6) + (1<<5) + 2); //immediate
+    write_memory_block(PROGRAM_COUNTER_START,(OP_CODE_ADD<<12) + (REGISTER_R0<<9) + (REGISTER_R1<<6) + (1<<5) + (1<<4)); //immediate
     write_memory_block(PROGRAM_COUNTER_START + 1,(OP_CODE_ADD<<12) + (REGISTER_R0<<9) + (REGISTER_R1<<6) + REGISTER_R0); //register
 
     REGISTERS[REGISTER_R1] = 5;
@@ -125,17 +162,23 @@ int main()
         switch(opcode)
         {
             case OP_CODE_ADD:
-                if(read_bit(instruction,5))
-                    REGISTERS[read_subint(instruction,9,3)] = read_subint(instruction,0,5) + REGISTERS[read_subint(instruction,6,3)];
-                else
-                    REGISTERS[read_subint(instruction,9,3)] = REGISTERS[read_subint(instruction,0,3)] + REGISTERS[read_subint(instruction,6,3)];
+            {
+                uint16_t destination_register = read_subint(instruction,9,3);
+                if(read_bit(instruction,5)) //immediate 5 bits
+                    REGISTERS[destination_register] = cast_to_int16(read_subint(instruction,0,5),5) + REGISTERS[read_subint(instruction,6,3)];
+                else //register
+                    REGISTERS[destination_register] = REGISTERS[read_subint(instruction,0,3)] + REGISTERS[read_subint(instruction,6,3)];
+                update_condition_flags(destination_register);
+                break;
+            }
+            case OP_CODE_LDI:
                 break;
 
             default:
                 printf("ERROR : Unknown opcode\n");
                 break;            
         }
-        printf("%d\n",REGISTERS[REGISTER_R0]);
+        printf("%d\n",(int16_t)REGISTERS[REGISTER_R0]);
     }
 
     return 0;
